@@ -30,15 +30,15 @@ func init() {
 	RootCmd.AddCommand(readCmd)
 }
 
-func read(cmd *cobra.Command, args []string) error {
+func read(cmd *cobra.Command, args []string) (returnErr error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	key := utils.NormalizeKey(args[1])
 	if err := validateKey(key); err != nil {
-		return fmt.Errorf("Failed to validate key: %w", err)
+		return fmt.Errorf("failed to validate key: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -56,7 +56,7 @@ func read(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 
 	secretId := store.SecretId{
@@ -66,22 +66,33 @@ func read(cmd *cobra.Command, args []string) error {
 
 	secret, err := secretStore.Read(cmd.Context(), secretId, version)
 	if err != nil {
-		return fmt.Errorf("Failed to read: %w", err)
+		return fmt.Errorf("failed to read: %w", err)
 	}
 
 	if quiet {
-		fmt.Fprintf(os.Stdout, "%s\n", *secret.Value)
+		if _, err := fmt.Fprintf(os.Stdout, "%s\n", *secret.Value); err != nil {
+			return fmt.Errorf("failed to write output: %w", err)
+		}
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
-	fmt.Fprintln(w, "Key\tValue\tVersion\tLastModified\tUser")
-	fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprintln(w, "Key\tValue\tVersion\tLastModified\tUser"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+	if _, err := fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n",
 		key,
 		*secret.Value,
 		secret.Meta.Version,
 		secret.Meta.Created.Local().Format(ShortTimeFormat),
-		secret.Meta.CreatedBy)
-	w.Flush()
+		secret.Meta.CreatedBy); err != nil {
+		return fmt.Errorf("failed to write secret: %w", err)
+	}
 	return nil
 }

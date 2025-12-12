@@ -7,15 +7,16 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetConfig(t *testing.T) {
 	originalRegion := os.Getenv(RegionEnvVar)
-	os.Setenv(RegionEnvVar, "us-west-2")
+	require.NoError(t, os.Setenv(RegionEnvVar, "us-west-2"))
 	if originalRegion != "" {
-		defer os.Setenv(RegionEnvVar, originalRegion)
+		defer func() { assert.NoError(t, os.Setenv(RegionEnvVar, originalRegion)) }()
 	} else {
-		defer os.Unsetenv(RegionEnvVar)
+		defer func() { assert.NoError(t, os.Unsetenv(RegionEnvVar)) }()
 	}
 
 	config, region, err := getConfig(context.Background(), 3, aws.RetryModeStandard)

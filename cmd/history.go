@@ -23,15 +23,15 @@ func init() {
 	RootCmd.AddCommand(historyCmd)
 }
 
-func history(cmd *cobra.Command, args []string) error {
+func history(cmd *cobra.Command, args []string) (returnErr error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	key := utils.NormalizeKey(args[1])
 	if err := validateKey(key); err != nil {
-		return fmt.Errorf("Failed to validate key: %w", err)
+		return fmt.Errorf("failed to validate key: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -49,7 +49,7 @@ func history(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 	secretId := store.SecretId{
 		Service: service,
@@ -58,19 +58,28 @@ func history(cmd *cobra.Command, args []string) error {
 
 	events, err := secretStore.History(cmd.Context(), secretId)
 	if err != nil {
-		return fmt.Errorf("Failed to get history: %w", err)
+		return fmt.Errorf("failed to get history: %w", err)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
-	fmt.Fprintln(w, "Event\tVersion\tDate\tUser")
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprintln(w, "Event\tVersion\tDate\tUser"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 	for _, event := range events {
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
+		if _, err := fmt.Fprintf(w, "%s\t%d\t%s\t%s\n",
 			event.Type,
 			event.Version,
 			event.Time.Local().Format(ShortTimeFormat),
 			event.User,
-		)
+		); err != nil {
+			return fmt.Errorf("failed to write event: %w", err)
+		}
 	}
-	w.Flush()
 	return nil
 }

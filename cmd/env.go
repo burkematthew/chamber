@@ -62,17 +62,17 @@ func env(cmd *cobra.Command, args []string) error {
 func exportEnv(cmd *cobra.Command, args []string) ([]string, error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return nil, fmt.Errorf("Failed to validate service: %w", err)
+		return nil, fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get secret store: %w", err)
+		return nil, fmt.Errorf("failed to get secret store: %w", err)
 	}
 
 	rawSecrets, err := secretStore.ListRaw(cmd.Context(), service)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to list store contents: %w", err)
+		return nil, fmt.Errorf("failed to list store contents: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -182,7 +182,7 @@ func doubleQuoteEscape(line string) string {
 		if c == '\r' {
 			toReplace = `\r`
 		}
-		line = strings.Replace(line, string(c), toReplace, -1)
+		line = strings.ReplaceAll(line, string(c), toReplace)
 	}
 	return line
 }

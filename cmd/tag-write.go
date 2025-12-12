@@ -29,25 +29,25 @@ func init() {
 	tagCmd.AddCommand(tagWriteCmd)
 }
 
-func tagWrite(cmd *cobra.Command, args []string) error {
+func tagWrite(cmd *cobra.Command, args []string) (returnErr error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	key := utils.NormalizeKey(args[1])
 	if err := validateKey(key); err != nil {
-		return fmt.Errorf("Failed to validate key: %w", err)
+		return fmt.Errorf("failed to validate key: %w", err)
 	}
 
 	tags := make(map[string]string, len(args)-2)
 	for _, tagArg := range args[2:] {
 		tagKey, tagValue, found := strings.Cut(tagArg, "=")
 		if !found {
-			return fmt.Errorf("Failed to parse tag %s: tag must be in the form key=value", tagArg)
+			return fmt.Errorf("failed to parse tag %s: tag must be in the form key=value", tagArg)
 		}
 		if err := validateTag(tagKey, tagValue); err != nil {
-			return fmt.Errorf("Failed to validate tag with key %s: %w", tagKey, err)
+			return fmt.Errorf("failed to validate tag with key %s: %w", tagKey, err)
 		}
 		tags[tagKey] = tagValue
 	}
@@ -67,7 +67,7 @@ func tagWrite(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 
 	secretId := store.SecretId{
@@ -77,19 +77,30 @@ func tagWrite(cmd *cobra.Command, args []string) error {
 
 	err = secretStore.WriteTags(cmd.Context(), secretId, tags, deleteOtherTags)
 	if err != nil {
-		return fmt.Errorf("Failed to write tags: %w", err)
+		return fmt.Errorf("failed to write tags: %w", err)
 	}
 
 	if quiet {
-		fmt.Fprintf(os.Stdout, "%s\n", tags)
+		if _, err := fmt.Fprintf(os.Stdout, "%s\n", tags); err != nil {
+			return fmt.Errorf("failed to write output: %w", err)
+		}
 		return nil
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
-	fmt.Fprintln(w, "Key\tValue")
-	for k, v := range tags {
-		fmt.Fprintf(w, "%s\t%s\n", k, v)
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprintln(w, "Key\tValue"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
 	}
-	w.Flush()
+	for k, v := range tags {
+		if _, err := fmt.Fprintf(w, "%s\t%s\n", k, v); err != nil {
+			return fmt.Errorf("failed to write tag: %w", err)
+		}
+	}
 	return nil
 }

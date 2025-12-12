@@ -20,7 +20,9 @@ func init() {
 }
 
 func versionRun(cmd *cobra.Command, args []string) error {
-	fmt.Fprintf(os.Stdout, "chamber %s\n", chamberVersion)
+	if _, err := fmt.Fprintf(os.Stdout, "chamber %s\n", chamberVersion); err != nil {
+		return fmt.Errorf("failed to write version: %w", err)
+	}
 	if analyticsEnabled && analyticsClient != nil {
 		_ = analyticsClient.Enqueue(analytics.Track{
 			UserId: username,

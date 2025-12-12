@@ -26,7 +26,7 @@ func init() {
 	RootCmd.AddCommand(listServicesCmd)
 }
 
-func listServices(cmd *cobra.Command, args []string) error {
+func listServices(cmd *cobra.Command, args []string) (returnErr error) {
 	var service string
 	if len(args) == 0 {
 		service = ""
@@ -36,24 +36,36 @@ func listServices(cmd *cobra.Command, args []string) error {
 	}
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 	secrets, err := secretStore.ListServices(cmd.Context(), service, includeSecretName)
 	if err != nil {
-		return fmt.Errorf("Failed to list store contents: %w", err)
+		return fmt.Errorf("failed to list store contents: %w", err)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
-	fmt.Fprint(w, "Service")
-	fmt.Fprintln(w, "")
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprint(w, "Service"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+	if _, err := fmt.Fprintln(w, ""); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 
 	sort.Strings(secrets)
 
 	for _, secret := range secrets {
-		fmt.Fprintf(w, "%s",
-			secret)
-		fmt.Fprintln(w, "")
+		if _, err := fmt.Fprintf(w, "%s", secret); err != nil {
+			return fmt.Errorf("failed to write service: %w", err)
+		}
+		if _, err := fmt.Fprintln(w, ""); err != nil {
+			return fmt.Errorf("failed to write service: %w", err)
+		}
 	}
-	w.Flush()
 	return nil
 }

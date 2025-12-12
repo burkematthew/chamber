@@ -27,7 +27,7 @@ func init() {
 func delete(cmd *cobra.Command, args []string) error {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	key := args[1]
@@ -36,7 +36,7 @@ func delete(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := validateKey(key); err != nil {
-		return fmt.Errorf("Failed to validate key: %w", err)
+		return fmt.Errorf("failed to validate key: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -53,7 +53,7 @@ func delete(cmd *cobra.Command, args []string) error {
 	}
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 	secretId := store.SecretId{
 		Service: service,

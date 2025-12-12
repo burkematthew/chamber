@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"testing"
+	"text/tabwriter"
 	"time"
 
 	"github.com/segmentio/chamber/v3/store"
@@ -223,4 +226,237 @@ func TestFindFunctions(t *testing.T) {
 		})
 	}
 
+}
+
+// findErrWriter is a writer that returns an error after writing a configured number of bytes
+type findErrWriter struct {
+	err          error
+	bytesWritten int
+	failAfter    int // fail after this many bytes written (-1 to never fail on Write)
+}
+
+func (e *findErrWriter) Write(p []byte) (n int, err error) {
+	if e.failAfter >= 0 && e.bytesWritten >= e.failAfter {
+		return 0, e.err
+	}
+	e.bytesWritten += len(p)
+	return len(p), nil
+}
+
+// writeFindOutput simulates the output writing logic from the find function
+// This allows us to test the error handling without needing to mock the secret store
+func writeFindOutput(w io.Writer, matchList []store.SecretId, byVal bool) (returnErr error) {
+	tw := tabwriter.NewWriter(w, 0, 8, 2, '\t', 0)
+	defer func() {
+		if err := tw.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprint(tw, "Service"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+	if byVal {
+		if _, err := fmt.Fprint(tw, "\tKey"); err != nil {
+			return fmt.Errorf("failed to write header: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintln(tw, ""); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+
+	for _, match := range matchList {
+		if _, err := fmt.Fprintf(tw, "%s", match.Service); err != nil {
+			return fmt.Errorf("failed to write match: %w", err)
+		}
+		if byVal {
+			if _, err := fmt.Fprintf(tw, "\t%s", match.Key); err != nil {
+				return fmt.Errorf("failed to write match: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintln(tw, ""); err != nil {
+			return fmt.Errorf("failed to write match: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func TestFindWriteErrors(t *testing.T) {
+	// Test that write errors are properly propagated.
+	// Note: Errors may occur during fmt.Fprint calls or during tabwriter.Flush(),
+	// depending on tabwriter's internal buffering behavior.
+	testErr := errors.New("write error")
+
+	tests := []struct {
+		name        string
+		matches     []store.SecretId
+		byValue     bool
+		failAfter   int
+		expectError bool
+	}{
+		{
+			name:        "write error with empty matches",
+			matches:     []store.SecretId{},
+			byValue:     false,
+			failAfter:   0,
+			expectError: true,
+		},
+		{
+			name:        "write error with byValue flag",
+			matches:     []store.SecretId{},
+			byValue:     true,
+			failAfter:   0,
+			expectError: true,
+		},
+		{
+			name: "write error with matches",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue:     false,
+			failAfter:   0,
+			expectError: true,
+		},
+		{
+			name: "write error with matches and byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue:     true,
+			failAfter:   0,
+			expectError: true,
+		},
+		{
+			name: "no error when writer succeeds",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue:     false,
+			failAfter:   -1, // Never fail
+			expectError: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			w := &findErrWriter{err: testErr, failAfter: test.failAfter}
+			err := writeFindOutput(w, test.matches, test.byValue)
+
+			if test.expectError {
+				assert.Error(t, err)
+				// Verify the underlying error is included
+				assert.Contains(t, err.Error(), testErr.Error())
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestFindFlushError(t *testing.T) {
+	// Test that errors occurring during flush are properly returned.
+	// The failAfter values are set high enough to allow initial writes to succeed.
+	tests := []struct {
+		name      string
+		matches   []store.SecretId
+		byValue   bool
+		failAfter int
+	}{
+		{
+			name:      "flush error with empty matches",
+			matches:   []store.SecretId{},
+			byValue:   false,
+			failAfter: 5,
+		},
+		{
+			name: "flush error with single match",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue:   false,
+			failAfter: 15,
+		},
+		{
+			name: "flush error with multiple matches and byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+				{Service: "service2", Key: "key2"},
+			},
+			byValue:   true,
+			failAfter: 25,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testErr := errors.New("io error")
+			w := &findErrWriter{err: testErr, failAfter: test.failAfter}
+			err := writeFindOutput(w, test.matches, test.byValue)
+
+			assert.Error(t, err)
+			// Verify the underlying error is included
+			assert.Contains(t, err.Error(), testErr.Error())
+		})
+	}
+}
+
+func TestFindOutputSuccess(t *testing.T) {
+	tests := []struct {
+		name    string
+		matches []store.SecretId
+		byValue bool
+	}{
+		{
+			name:    "empty matches without byValue",
+			matches: []store.SecretId{},
+			byValue: false,
+		},
+		{
+			name:    "empty matches with byValue",
+			matches: []store.SecretId{},
+			byValue: true,
+		},
+		{
+			name: "single match without byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue: false,
+		},
+		{
+			name: "single match with byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+			},
+			byValue: true,
+		},
+		{
+			name: "multiple matches without byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+				{Service: "service2", Key: "key2"},
+				{Service: "service3/sub", Key: "key3"},
+			},
+			byValue: false,
+		},
+		{
+			name: "multiple matches with byValue",
+			matches: []store.SecretId{
+				{Service: "service1", Key: "key1"},
+				{Service: "service2", Key: "key2"},
+				{Service: "service3/sub", Key: "key3"},
+			},
+			byValue: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Use a successful writer (bytes.Buffer would work, but we use our errWriter with failAfter=-1)
+			w := &findErrWriter{failAfter: -1}
+			err := writeFindOutput(w, test.matches, test.byValue)
+			assert.NoError(t, err)
+		})
+	}
 }

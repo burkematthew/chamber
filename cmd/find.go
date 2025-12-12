@@ -30,7 +30,7 @@ func init() {
 	RootCmd.AddCommand(findCmd)
 }
 
-func find(cmd *cobra.Command, args []string) error {
+func find(cmd *cobra.Command, args []string) (returnErr error) {
 	findSecret := args[0]
 
 	if byValue {
@@ -41,11 +41,11 @@ func find(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 	services, err := secretStore.ListServices(cmd.Context(), blankService, includeSecrets)
 	if err != nil {
-		return fmt.Errorf("Failed to list store contents: %w", err)
+		return fmt.Errorf("failed to list store contents: %w", err)
 	}
 
 	if byValue {
@@ -60,20 +60,37 @@ func find(cmd *cobra.Command, args []string) error {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
-	fmt.Fprint(w, "Service")
-	if byValue {
-		fmt.Fprint(w, "\tKey")
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
+
+	if _, err := fmt.Fprint(w, "Service"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
 	}
-	fmt.Fprintln(w, "")
+	if byValue {
+		if _, err := fmt.Fprint(w, "\tKey"); err != nil {
+			return fmt.Errorf("failed to write header: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintln(w, ""); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 
 	for _, match := range matches {
-		fmt.Fprintf(w, "%s", match.Service)
-		if byValue {
-			fmt.Fprintf(w, "\t%s", match.Key)
+		if _, err := fmt.Fprintf(w, "%s", match.Service); err != nil {
+			return fmt.Errorf("failed to write match: %w", err)
 		}
-		fmt.Fprintln(w, "")
+		if byValue {
+			if _, err := fmt.Fprintf(w, "\t%s", match.Key); err != nil {
+				return fmt.Errorf("failed to write match: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintln(w, ""); err != nil {
+			return fmt.Errorf("failed to write match: %w", err)
+		}
 	}
-	w.Flush()
 
 	return nil
 }

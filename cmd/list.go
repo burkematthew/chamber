@@ -36,10 +36,10 @@ func init() {
 	RootCmd.AddCommand(listCmd)
 }
 
-func list(cmd *cobra.Command, args []string) error {
+func list(cmd *cobra.Command, args []string) (returnErr error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateServiceWithLabel(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -56,20 +56,31 @@ func list(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 	secrets, err := secretStore.List(cmd.Context(), service, withValues)
 	if err != nil {
-		return fmt.Errorf("Failed to list store contents: %w", err)
+		return fmt.Errorf("failed to list store contents: %w", err)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 8, 2, '\t', 0)
+	defer func() {
+		if err := w.Flush(); err != nil && returnErr == nil {
+			returnErr = fmt.Errorf("failed to flush output: %w", err)
+		}
+	}()
 
-	fmt.Fprint(w, "Key\tVersion\tLastModified\tUser")
-	if withValues {
-		fmt.Fprint(w, "\tValue")
+	if _, err := fmt.Fprint(w, "Key\tVersion\tLastModified\tUser"); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
 	}
-	fmt.Fprintln(w, "")
+	if withValues {
+		if _, err := fmt.Fprint(w, "\tValue"); err != nil {
+			return fmt.Errorf("failed to write header: %w", err)
+		}
+	}
+	if _, err := fmt.Fprintln(w, ""); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
 
 	sort.Sort(ByName(secrets))
 	if sortByTime {
@@ -83,18 +94,23 @@ func list(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, secret := range secrets {
-		fmt.Fprintf(w, "%s\t%d\t%s\t%s",
+		if _, err := fmt.Fprintf(w, "%s\t%d\t%s\t%s",
 			key(secret.Meta.Key),
 			secret.Meta.Version,
 			secret.Meta.Created.Local().Format(ShortTimeFormat),
-			secret.Meta.CreatedBy)
-		if withValues {
-			fmt.Fprintf(w, "\t%s", *secret.Value)
+			secret.Meta.CreatedBy); err != nil {
+			return fmt.Errorf("failed to write secret: %w", err)
 		}
-		fmt.Fprintln(w, "")
+		if withValues {
+			if _, err := fmt.Fprintf(w, "\t%s", *secret.Value); err != nil {
+				return fmt.Errorf("failed to write secret: %w", err)
+			}
+		}
+		if _, err := fmt.Fprintln(w, ""); err != nil {
+			return fmt.Errorf("failed to write secret: %w", err)
+		}
 	}
 
-	w.Flush()
 	return nil
 }
 

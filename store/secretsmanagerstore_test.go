@@ -173,44 +173,44 @@ func TestSecretValueObjectUnmarshalling(t *testing.T) {
 
 func TestNewSecretsManagerStore(t *testing.T) {
 	t.Run("Using region override should take precedence over other settings", func(t *testing.T) {
-		os.Setenv("CHAMBER_AWS_REGION", "us-east-1")
-		defer os.Unsetenv("CHAMBER_AWS_REGION")
-		os.Setenv("AWS_REGION", "us-west-1")
-		defer os.Unsetenv("AWS_REGION")
-		os.Setenv("AWS_DEFAULT_REGION", "us-west-2")
-		defer os.Unsetenv("AWS_DEFAULT_REGION")
+		require.NoError(t, os.Setenv("CHAMBER_AWS_REGION", "us-east-1"))
+		defer func() { assert.NoError(t, os.Unsetenv("CHAMBER_AWS_REGION")) }()
+		require.NoError(t, os.Setenv("AWS_REGION", "us-west-1"))
+		defer func() { assert.NoError(t, os.Unsetenv("AWS_REGION")) }()
+		require.NoError(t, os.Setenv("AWS_DEFAULT_REGION", "us-west-2"))
+		defer func() { assert.NoError(t, os.Unsetenv("AWS_DEFAULT_REGION")) }()
 
 		s, err := NewSecretsManagerStore(context.Background(), 1)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.Equal(t, "us-east-1", s.config.Region)
 	})
 
 	t.Run("Should use AWS_REGION if it is set", func(t *testing.T) {
-		os.Setenv("AWS_REGION", "us-west-1")
-		defer os.Unsetenv("AWS_REGION")
+		require.NoError(t, os.Setenv("AWS_REGION", "us-west-1"))
+		defer func() { assert.NoError(t, os.Unsetenv("AWS_REGION")) }()
 
 		s, err := NewSecretsManagerStore(context.Background(), 1)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		assert.Equal(t, "us-west-1", s.config.Region)
 	})
 
 	t.Run("Should use CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT if set", func(t *testing.T) {
-		os.Setenv("CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT", "mycustomendpoint")
-		defer os.Unsetenv("CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT")
+		require.NoError(t, os.Setenv("CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT", "mycustomendpoint"))
+		defer func() { assert.NoError(t, os.Unsetenv("CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT")) }()
 
 		s, err := NewSecretsManagerStore(context.Background(), 1)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		secretsmanagerClient := s.svc.(*secretsmanager.Client)
 		assert.Equal(t, "mycustomendpoint", *secretsmanagerClient.Options().BaseEndpoint)
 		// default endpoint resolution (v2) uses the client's BaseEndpoint
 	})
 
 	t.Run("Should use CHAMBER_AWS_SSM_ENDPOINT if set (deprecated)", func(t *testing.T) {
-		os.Setenv("CHAMBER_AWS_SSM_ENDPOINT", "mycustomendpoint")
-		defer os.Unsetenv("CHAMBER_AWS_SSM_ENDPOINT")
+		require.NoError(t, os.Setenv("CHAMBER_AWS_SSM_ENDPOINT", "mycustomendpoint"))
+		defer func() { assert.NoError(t, os.Unsetenv("CHAMBER_AWS_SSM_ENDPOINT")) }()
 
 		s, err := NewSecretsManagerStore(context.Background(), 1)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		secretsmanagerClient := s.svc.(*secretsmanager.Client)
 		assert.Equal(t, "mycustomendpoint", *secretsmanagerClient.Options().BaseEndpoint)
 		// default endpoint resolution (v2) uses the client's BaseEndpoint
@@ -218,7 +218,7 @@ func TestNewSecretsManagerStore(t *testing.T) {
 
 	t.Run("Should use default AWS secrets manager endpoint if CHAMBER_AWS_SECRETS_MANAGER_ENDPOINT not set", func(t *testing.T) {
 		s, err := NewSecretsManagerStore(context.Background(), 1)
-		assert.Nil(t, err)
+		assert.NoError(t, err)
 		secretsmanagerClient := s.svc.(*secretsmanager.Client)
 		assert.Nil(t, secretsmanagerClient.Options().BaseEndpoint)
 	})
@@ -474,7 +474,9 @@ func TestSecretsManagerDelete(t *testing.T) {
 
 func uniqueID() string {
 	uuid := make([]byte, 16)
-	_, _ = rand.Read(uuid)
+	if _, err := rand.Read(uuid); err != nil {
+		panic(err)
+	}
 	return fmt.Sprintf("%x", uuid)
 }
 

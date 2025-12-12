@@ -27,10 +27,10 @@ func init() {
 	RootCmd.AddCommand(importCmd)
 }
 
-func importRun(cmd *cobra.Command, args []string) error {
+func importRun(cmd *cobra.Command, args []string) (returnErr error) {
 	service := utils.NormalizeService(args[0])
 	if err := validateService(service); err != nil {
-		return fmt.Errorf("Failed to validate service: %w", err)
+		return fmt.Errorf("failed to validate service: %w", err)
 	}
 
 	var in io.Reader
@@ -40,17 +40,23 @@ func importRun(cmd *cobra.Command, args []string) error {
 	if file == "-" {
 		in = os.Stdin
 	} else {
-		in, err = os.Open(file)
+		f, err := os.Open(file)
 		if err != nil {
-			return fmt.Errorf("Failed to open file: %w", err)
+			return fmt.Errorf("failed to open file: %w", err)
 		}
+		defer func() {
+			if err := f.Close(); err != nil && returnErr == nil {
+				returnErr = fmt.Errorf("failed to close file: %w", err)
+			}
+		}()
+		in = f
 	}
 
 	var toBeImported map[string]string
 
 	decoder := yaml.NewDecoder(in)
 	if err := decoder.Decode(&toBeImported); err != nil {
-		return fmt.Errorf("Failed to decode input as json: %w", err)
+		return fmt.Errorf("failed to decode input as json: %w", err)
 	}
 
 	if analyticsEnabled && analyticsClient != nil {
@@ -67,7 +73,7 @@ func importRun(cmd *cobra.Command, args []string) error {
 
 	secretStore, err := getSecretStore(cmd.Context())
 	if err != nil {
-		return fmt.Errorf("Failed to get secret store: %w", err)
+		return fmt.Errorf("failed to get secret store: %w", err)
 	}
 
 	for key, value := range toBeImported {
@@ -79,10 +85,12 @@ func importRun(cmd *cobra.Command, args []string) error {
 			Key:     key,
 		}
 		if err := secretStore.Write(cmd.Context(), secretId, value); err != nil {
-			return fmt.Errorf("Failed to write secret: %w", err)
+			return fmt.Errorf("failed to write secret: %w", err)
 		}
 	}
 
-	fmt.Fprintf(os.Stdout, "Successfully imported %d secrets\n", len(toBeImported))
+	if _, err := fmt.Fprintf(os.Stdout, "Successfully imported %d secrets\n", len(toBeImported)); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
 	return nil
 }
